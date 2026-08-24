@@ -116,17 +116,33 @@ function U.self_update(net, repo, prefix, current_version)
     local ok, aerr = U.apply_zip(net, info.url, tmp)
     if not ok then return nil, aerr or "fallo apply" end
 
-    -- copiar sobre as fontes, preservando config/
-    os.execute("mkdir -p '" .. prefix .. "'")
+    -- tarball do GitHub ten un top-level dir (repo-tag-hash/); normaliza
     local f = io.popen("ls -1 '" .. tmp .. "' 2>/dev/null")
     local names = f and f:read("*a") or ""
     if f then f:close() end
-    for name in string.gmatch(names, "[^\n]+") do
+    local count, single = 0, nil
+    for name in string.gmatch(names, "[^\n]+") do count = count + 1; single = name end
+    if count == 1 and single then
+        -- confirma que é um DIRECTÓRIO (io.open em dir retorna non-nil no Linux)
+        local p = io.popen("test -d '" .. tmp .. "/" .. single .. "' && echo yes")
+        local isdir = p and p:read("*l") == "yes"
+        if p then p:close() end
+        if isdir then
+            tmp = tmp .. "/" .. single   -- top-level dir → usa-o como raíz
+        end
+    end
+
+    -- copiar sobre as fontes, preservando config/
+    os.execute("mkdir -p '" .. prefix .. "'")
+    local f2 = io.popen("ls -1 '" .. tmp .. "' 2>/dev/null")
+    local names2 = f2 and f2:read("*a") or ""
+    if f2 then f2:close() end
+    for name in string.gmatch(names2, "[^\n]+") do
         if name ~= "config" then
             os.execute("cp -r '" .. tmp .. "/" .. name .. "' '" .. prefix .. "/' ")
         end
     end
-    os.execute("rm -rf '" .. tmp .. "'")
+    os.execute("rm -rf '" .. prefix .. "/.galois_update_tmp'")
 
     -- escribe versión nova
     local vf = io.open(prefix .. "/version", "wb")

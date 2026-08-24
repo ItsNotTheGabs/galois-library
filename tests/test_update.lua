@@ -105,4 +105,25 @@ T.eq("self_update: config preservado", cfg_after, "anna=1\n")
 local up2, up2err = update.self_update(n_up, "o/galois", "/tmp/galois_prefix_v1", "0.2.0")
 T.ok("self_update: já atual -> nil", up2 == nil and up2err ~= nil)
 
+-- ---- 7. self_update com tarball de top-level dir (como o do GitHub) ----
+os.execute("rm -rf /tmp/galois_prefix_g /tmp/galois_pkg_gh")
+os.execute("mkdir -p /tmp/galois_prefix_g /tmp/galois_pkg_gh/repo-tag-hash")
+local wg = io.open("/tmp/galois_pkg_gh/repo-tag-hash/version", "wb"); wg:write("0.3.0\n"); wg:close()
+local ag = io.open("/tmp/galois_pkg_gh/repo-tag-hash/app.lua", "wb"); ag:write("-- v3\n"); ag:close()
+os.execute("tar -czf /tmp/galois_pkg_gh.tar.gz -C /tmp/galois_pkg_gh . 2>/dev/null")
+local tg = io.open("/tmp/galois_pkg_gh.tar.gz", "rb")
+local ball_g = tg and tg:read("*a")
+if tg then tg:close() end
+local n_g = mock_net({
+    ["https://api.github.com/repos/o/galois/releases/latest"] =
+        '{"tag_name":"v0.3.0","tarball_url":"https://x/pkg3.tar.gz"}',
+    ["https://x/pkg3.tar.gz"] = ball_g,
+})
+local ok_g, err_g = update.self_update(n_g, "o/galois", "/tmp/galois_prefix_g", "0.2.0")
+T.ok("self_update: github-style tarball aplica", ok_g ~= nil, tostring(err_g))
+local app3 = io.open("/tmp/galois_prefix_g/app.lua", "rb") and io.open("/tmp/galois_prefix_g/app.lua", "rb"):read("*a") or ""
+T.eq("self_update: github-style arquivo na raiz", app3, "-- v3\n")
+local ver3 = io.open("/tmp/galois_prefix_g/version", "rb") and io.open("/tmp/galois_prefix_g/version", "rb"):read("*a") or ""
+T.eq("self_update: github-style version", ver3, "0.3.0\n")
+
 T.done()
