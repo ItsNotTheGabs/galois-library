@@ -59,7 +59,7 @@ function GaloisLib:init()
         defaults = {
             anna = true, zlib = true,
             download_dir = GALOIS_DIR .. "/documents",
-            repo = "galois-library/galois-library",
+            repo = "ItsNotTheGabs/galois-library",
         },
     })
 
@@ -104,7 +104,7 @@ function GaloisLib:currentVersion()
 end
 
 function GaloisLib:checkUpdate(silent)
-    local repo = self.cfg:get("repo", "galibre-archive/galois-archive")
+    local repo = self.cfg:get("repo", "ItsNotTheGabs/galois-library")
     local cur = self:currentVersion()
     local info, err = self.update.check(self.net, cur, repo)
     if not info then

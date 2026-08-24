@@ -10,7 +10,7 @@
 #
 # Configuração por env (para mirrors/repo próprios):
 #   GALOIS_REPO       "owner/repo" (GitHub) ou URL direta de release.json
-#                     (default: galois-library/galois-library)
+#                     (default: ItsNotTheGabs/galois-library)
 #   GALOIS_ASSET_URL  URL direta do tarball (dispensa a consulta à API)
 #   GALOIS_PREFIX     destino alternativo (testes)
 #   GALOIS_VERSION    versão a instalar (default: latest)
@@ -21,7 +21,7 @@ log()  { printf '\033[1;32m[Galois]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[Galois]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[Galois] ERRO:\033[0m %s\n' "$*" >&2; exit 1; }
 
-REPO="${GALOIS_REPO:-galois-library/galois-library}"
+REPO="${GALOIS_REPO:-ItsNotTheGabs/galois-library}"
 ASSET_URL="${GALOIS_ASSET_URL:-}"
 VERSION_WANT="${GALOIS_VERSION:-latest}"
 

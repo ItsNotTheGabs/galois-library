@@ -24,7 +24,7 @@ O instalador detecta o ambiente:
 Variáveis de ambiente:
 
 ```bash
-GALOIS_REPO=owner/repo          # ou URL direta de release.json
+GALOIS_REPO=ItsNotTheGabs/galois-library  # ou URL direta de release.json
 GALOIS_ASSET_URL=https://...   # tarball direto (dispensa GitHub API)
 GALOIS_PREFIX=/caminho/destino
 ```

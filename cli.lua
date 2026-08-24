@@ -140,7 +140,7 @@ local function cmd_update(args)
     for i = 1, #args do
         if args[i] == "--apply" then apply = true end
     end
-    local repo = os.getenv("GALOIS_REPO") or "galois-library/galois-library"
+    local repo = os.getenv("GALOIS_REPO") or "ItsNotTheGabs/galois-library"
     local prefix = os.getenv("GALOIS_PREFIX")
     if not prefix then
         -- Kindle: /mnt/us/galois-library ; desktop: ~/.local/share/galois-library
