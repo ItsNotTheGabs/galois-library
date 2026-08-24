@@ -1,85 +1,75 @@
 -- koplugin/galoislibrary.koplugin/main.lua
--- GaloisLibrary — UI KOReader (e-ink). PLUGIN ROBUSTO:
+-- GaloisLibrary — UI KOReader (e-ink). PLUGIN NO FORMATO OFICIAL.
 --
---  * Estado vive no MÓDULO (tabela S), NÃO em instância de WidgetContainer —
---    assim funciona independente de como o loadér do KOReader chama os hooks
---    (com ':' ou com '.', versões antigas/nova).
---  * addToMainMenu detecta as duas convenções de chamada.
---  * Telas: menu principal, busca, resultados, detalhe/baixar, configurações
---    de fontes (com health), atualização.
+-- Convenções do pluginloader.lua + Widget (validadas contra plugins/hello
+-- do próprio KOReader):
+--   * o módulo retornado é WidgetContainer:extend{ name=..., is_doc_only=false }
+--   * init() chama self.ui.menu:registerToMainMenu(self)  -> cria instância real
+--   * addToMainMenu(menu_items) POPULA menu_items por CHAVE nomeada (não insert)
+--   * cores (sources/...) vivem em /mnt/us/galois-library (instalador); o plugin
+--     REGISTRA o package.path para achar os módulos.
 --
--- O núcleo (sources/catalog/health/update) é Lua puro testável em desktop.
+-- O núcleo é 100% Lua puro testável em desktop (lua tests/run_all.lua).
 
-local S = { name = "galoislibrary" }
+local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
--- ---- detecção da raiz do núcleo (instalado por install.sh) ----------------
-local function find_core()
-    for _, cand in ipairs({ "/mnt/us/galois-library", "/mnt/us/extensions/galoislibrary" }) do
-        local f = io.open(cand .. "/sources/init.lua", "r")
-        if f then f:close(); return cand end
-    end
-    return nil -- (modo dev: roda na raiz do repo)
-end
-local GALOIS_DIR = find_core()
-if GALOIS_DIR then
-    package.path = GALOIS_DIR .. "/?.lua;" .. GALOIS_DIR .. "/sources/?.lua;" .. package.path
-end
-
--- widgets KOReader (com fallback defensivo)
-local ok_ui, UIManager = pcall(require, "ui/uimanager")
-local ok_inp, InputDialog = pcall(require, "ui/widget/inputdialog")
-local ok_menu, TouchMenu = pcall(require, "ui/widget/touchmenu")
-local ok_note, Notification = pcall(require, "ui/widget/notification")
-local ok_info, InfoMessage = pcall(require, "ui/widget/infomessage")
-local ok_btn, ButtonDialog = pcall(require, "ui/widget/buttondialog")
-
-local function notify(text)
-    if ok_note and Notification then UIManager:show(Notification:new{ text = text }) else print("[GaloisLibrary] " .. text) end
-end
-local function info(text)
-    if ok_info and InfoMessage then UIManager:show(InfoMessage:new{ text = text }) else notify(text) end
-end
-
-local function real_fs()
-    return {
-        read = function(p) local f = io.open(p, "rb"); if not f then return nil end
-            local d = f:read("*a"); f:close(); return d end,
-        write = function(p, d)
-            local dir = string.match(p, '^(.*)/[^/]+$')
-            if dir then os.execute("mkdir -p '" .. dir .. "' 2>/dev/null") end
-            local f = io.open(p, "wb"); if not f then return false end
-            f:write(d); f:close(); return true
-        end,
-    }
-end
-
--- fecha um widget sem erro se o arg faltar (KOReader pede o widget; protege)
-local function close_ui(w)
-    if UIManager and UIManager.close then
-        pcall(UIManager.close, UIManager, w)
+-- ---- raiz do núcleo (cópia instalada pelo install.sh) --------------------
+local GALOIS_DIR
+local candidates = {}
+local configured_dir = os.getenv("GALOIS_DIR")
+if configured_dir and configured_dir ~= "" then candidates[#candidates + 1] = configured_dir end
+candidates[#candidates + 1] = "/mnt/us/galois-library"
+candidates[#candidates + 1] = "/mnt/us/extensions/galoislibrary"
+for _, cand in ipairs(candidates) do
+    local f = io.open(cand .. "/sources/init.lua", "r")
+    if f then
+        f:close()
+        GALOIS_DIR = cand
+        break
     end
 end
 
----------------------------------------------------------------------------
--- init (chamado pelo KOReader; tolera : ou .)
----------------------------------------------------------------------------
-function S.init(self)
-    S.last_query = ""
-    S.net = require("net_curl")
-    S.sources = require("sources.init")
-    S.catalog = require("catalog")
-    S.health = require("health")
-    S.update = require("update")
+local GaloisLibrary = WidgetContainer:extend{
+    name = "galoislibrary",
+    is_doc_only = false,
+}
 
-    S.sources.register_all({
+function GaloisLibrary:init()
+    -- Fallback ao repetir o load (KOReader pode chamar init de novo)
+    if self._initialized then return end
+    self._initialized = true
+
+    -- garantir que o núcleo esteja no path
+    if GALOIS_DIR then
+        package.path = GALOIS_DIR .. "/?.lua;" .. GALOIS_DIR .. "/sources/?.lua;" .. package.path
+    end
+
+    -- carrega o núcleo (net persistente, catálogo, health, update)
+    -- (se o host/teste já injetou net/net real, respeita; senão, usa o real)
+    self.net = self.net or require("net_curl")
+    self.sources = require("sources.init")
+    self.catalog = require("catalog")
+    self.health = require("health")
+    self.update = require("update")
+
+    self.sources.register_all({
         anna = require("anna"),
         zlib = require("zlib"),
     })
 
     local base = GALOIS_DIR or "."
-    S.cfg = require("settings").new({
+    self.cfg = require("settings").new({
         path = base .. "/config/sources.cfg",
-        fs = real_fs(),
+        fs = {
+            read = function(p) local f = io.open(p, "rb"); if not f then return nil end
+                local d = f:read("*a"); f:close(); return d end,
+            write = function(p, d)
+                local dir = string.match(p, '^(.*)/[^/]+$')
+                if dir then os.execute("mkdir -p '" .. dir .. "' 2>/dev/null") end
+                local f = io.open(p, "wb"); if not f then return false end
+                f:write(d); f:close(); return true
+            end,
+        },
         defaults = {
             anna = true, zlib = true,
             download_dir = "/mnt/us/documents",
@@ -87,23 +77,68 @@ function S.init(self)
         },
     })
 
-    if ok_ui then
-        UIManager:scheduleIn(0, function() S:autoCheckUpdate() end)
+    -- REGISTRA no menu principal: forma canónica
+    if self.ui and self.ui.menu and self.ui.menu.registerToMainMenu then
+        self.ui.menu:registerToMainMenu(self)
     end
-    return S
 end
 
----------------------------------------------------------------------------
--- Atualizações
----------------------------------------------------------------------------
-function S:autoCheckUpdate()
-    local last = tonumber(self.cfg:get("last_update_check", "0")) or 0
-    if os.time() - last < 86400 then return end
-    self.cfg:set_raw("last_update_check", tostring(os.time()))
-    self:checkUpdate(true)
+function GaloisLibrary:addToMainMenu(menu_items)
+    menu_items.galoislibrary = {
+        text = "GaloisLibrary",
+        sub_item_table = {
+            { text = "🔍 Buscar livros", callback = function() self:searchDialog() end },
+            { text = "⚙ Fontes (ativar/desativar + saúde)", callback = function() self:sourcesConfigMenu() end },
+            { text = "⬆ Verificar atualização", callback = function() self:checkUpdate() end },
+            { text = "ℹ Sobre", callback = function() self:showAbout() end },
+        },
+    }
 end
 
-function S:currentVersion()
+-- ---- helpers de UI defensivos ----
+local UIManager = require("ui/uimanager")
+local function notify(text)
+    local Notification = require("ui/widget/notification")
+    UIManager:show(Notification:new{ text = text, timeout = 3 })
+end
+local function info(text)
+    local InfoMessage = require("ui/widget/infomessage")
+    UIManager:show(InfoMessage:new{ text = text })
+end
+local function close_dialog(dlg)
+    if dlg then UIManager:close(dlg) end
+end
+
+-- ---- atualizações ----
+function GaloisLibrary:checkUpdate()
+    local cur = self:currentVersion()
+    local res, err = self.update.check(self.net, cur, self.cfg:get("repo", "ItsNotTheGabs/galois-library"))
+    if not res then
+        info("Falha ao verificar atualização: " .. tostring(err))
+        return
+    end
+    if not res.has_update then
+        notify("GaloisLibrary já está atualizado (v" .. cur .. ")")
+        return
+    end
+    local UpdateDialog = require("ui/widget/buttondialog")
+    local dlg = UpdateDialog:new{
+        title = string.format("Nova versão %s disponível", res.latest),
+        info_text = string.format("Atual: v%s\nBaixar e aplicar agora?", cur),
+        buttons = {
+            { { text = "Atualizar", callback = function()
+                    close_dialog(dlg)
+                    notify("Baixando atualização...")
+                    local ok, err = self.update.self_update(self.net, self.cfg:get("repo", "ItsNotTheGabs/galois-library"), (GALOIS_DIR or "."), cur)
+                    if ok then info("Atualizado para v" .. res.latest .. " ✓") else info("Falha na atualização: " .. tostring(err)) end
+                end } },
+            { { text = "Agora não", callback = function() close_dialog(dlg) end } },
+        },
+    }
+    UIManager:show(dlg)
+end
+
+function GaloisLibrary:currentVersion()
     local vf = io.open((GALOIS_DIR or ".") .. "/version", "rb")
     if not vf then return "0.0.0" end
     local v = vf:read("*a"):gsub("%s+$", "")
@@ -111,86 +146,53 @@ function S:currentVersion()
     return v
 end
 
-function S:checkUpdate(silent)
-    local repo = self.cfg:get("repo", "ItsNotTheGabs/galois-library")
-    local cur = self:currentVersion()
-    local info, err = self.update.check(self.net, cur, repo)
-    if not info then
-        if not silent then info("Falha ao verificar atualização: " .. tostring(err)) end
-        return
-    end
-    if not info.has_update then
-        if not silent then notify("GaloisLibrary já está atualizado (v" .. cur .. ")") end
-        return
-    end
-    if ok_btn and ButtonDialog then
-        local dlg = ButtonDialog:new{
-            title = string.format("Nova versão %s disponível", info.latest),
-            info_text = string.format("Atual: v%s\nBaixar e aplicar agora?", cur),
-            buttons = {
-                { { text = "Atualizar", callback = function()
-                      close_ui(dlg)
-                      notify("Baixando atualização...")
-                      local ok, err = self.update.self_update(self.net, repo, (GALOIS_DIR or "."), cur)
-                      if ok then info("Atualizado para v" .. info.latest .. " ✓")
-                      else info("Falha na atualização: " .. tostring(err)) end
-                  end },
-                  { text = "Agora não", callback = function() close_ui(dlg) end } },
-            },
-        }
-        UIManager:show(dlg)
-    else
-        notify("Nova versão " .. info.latest .. " disponível. Rode: lua cli.lua update --apply")
-    end
+function GaloisLibrary:showAbout()
+    info(string.format("GaloisLibrary v%s\nFontes plugáveis com health check.", self:currentVersion()))
 end
 
----------------------------------------------------------------------------
--- Busca
----------------------------------------------------------------------------
-function S:searchDialog()
+-- ---- busca ----
+function GaloisLibrary:searchDialog()
+    local InputDialog = require("ui/widget/inputdialog")
     local dialog = InputDialog:new{
         title = "Buscar livros",
-        input = self.last_query or "",
+        input = "",
         buttons = {
             { { text = "Buscar", callback = function()
-                      local q = dialog.getInputText and dialog:getInputText() or dialog.input or ""
-                      close_ui(dialog)
-                      self.last_query = q
-                      self:doSearch(q)
-                  end },
-                  { text = "Cancelar", callback = function() close_ui(dialog) end } },
+                    local q = dialog:getInputText() or ""
+                    close_dialog(dialog)
+                    self:doSearch(q)
+                end } },
+            { { text = "Cancelar", callback = function() close_dialog(dialog) end } },
         },
     }
     UIManager:show(dialog)
     if dialog.onShowKeyboard then dialog:onShowKeyboard() end
 end
 
-function S:doSearch(q)
+function GaloisLibrary:doSearch(q)
     if not q or q == "" then notify("Busca vazia"); return end
-    UIManager:show(Notification:new{ text = "Buscando em fontes ativas..." })
+    notify("Buscando em fontes ativas...")
     local res, err = self.catalog.search(self.net, self.sources, q, 1, self.cfg)
     if not res then
         info("Nenhum resultado: " .. tostring(err))
         return
     end
+    local TouchMenu = require("ui/widget/touchmenu")
     local items = {}
     for _, b in ipairs(res.results) do
         local label = string.format("%s  [%s] %s", b.title, b.source, b.format or "?")
         items[#items + 1] = {
             text = label,
             cover_url = b.cover_url,
-            book = b,
             callback = function() self:bookDetailMenu(b) end,
         }
     end
     items[#items + 1] = { text = "✕ Fechar" }
-    UIManager:show(TouchMenu:new{
-        title = string.format("Resultados (%d)", #res.results),
-        item_table = items,
-    })
+    UIManager:show(TouchMenu:new{ title = string.format("Resultados (%d)", #res.results), item_table = items })
 end
 
-function S:bookDetailMenu(b)
+function GaloisLibrary:bookDetailMenu(b)
+    local TouchMenu = require("ui/widget/touchmenu")
     local items = {
         { text = ("%s"):format(b.title), bold = true },
         { text = ("Autor: %s"):format(b.author or "desconhecido") },
@@ -200,34 +202,30 @@ function S:bookDetailMenu(b)
         items[#items + 1] = { text = ("Descrição: %s"):format(b.description) }
     end
     items[#items + 1] = { text = "⬇ Baixar para a biblioteca", callback = function()
-        close_ui()
         self:downloadBook(b)
     end }
     items[#items + 1] = { text = "◀ Voltar" }
     UIManager:show(TouchMenu:new{ title = b.title, item_table = items })
 end
 
-function S:downloadBook(b)
+function GaloisLibrary:downloadBook(b)
     local src_mod = self.sources.get(b.source)
-    if not src_mod then info("Fonte desconhecida: " .. tostring(b.source)); return end
-    UIManager:show(Notification:new{ text = "Resolvendo link de download..." })
+    if not src_mod then notify("Fonte desconhecida: " .. tostring(b.source)); return end
+    notify("Resolvendo link de download...")
     local url, err = src_mod.resolve_download(self.net, b, self.cfg)
-    if not url then info("Não foi possível baixar: " .. tostring(err)); return end
-
+    if not url then notify("Não foi possível baixar: " .. tostring(err)); return end
     local dir = self.cfg:get("download_dir", "/mnt/us/documents")
     os.execute("mkdir -p '" .. dir .. "'")
     local fname = (b.title or "livro"):gsub("[^%w%p%s]", ""):gsub("%s+", "_") .. "." .. (b.format or "epub")
     local dest = dir .. "/" .. fname
-
-    UIManager:show(Notification:new{ text = "Baixando..." })
-    local ok, derr = self.net.save(url, dest, 120)
-    if ok then info("Baixado!\n" .. dest) else info("Falha no download: " .. tostring(derr)) end
+    notify("Baixando...")
+    local ok, derr = self.net:save(url, dest, 120)
+    if ok then notify("Baixado!\n" .. dest) else notify("Falha no download: " .. tostring(derr)) end
 end
 
----------------------------------------------------------------------------
--- Configurações de fontes (com status de saúde)
----------------------------------------------------------------------------
-function S:sourcesConfigMenu()
+-- ---- configurações de fontes ----
+function GaloisLibrary:sourcesConfigMenu()
+    local TouchMenu = require("ui/widget/touchmenu")
     local items = {}
     local res = self.health.run(self.net, self.sources, self.cfg, {})
     local status = {}
@@ -242,61 +240,21 @@ function S:sourcesConfigMenu()
             checked = self.cfg:enabled(m.META.name),
             callback = function()
                 self.cfg:toggle(m.META.name)
-                self:sourcesConfigMenu()
+                UIManager:show(TouchMenu:new{ title = "Configurações de fontes", item_table = items }) -- refresh
             end,
         }
     end
     items[#items + 1] = { text = "🔄 Testar fontes agora", callback = function()
-        close_ui()
-        UIManager:show(Notification:new{ text = "Testando fontes..." })
         local r2 = self.health.run(self.net, self.sources, self.cfg, { only_enabled = false })
         local lines = {}
         for _, r in ipairs(r2.report) do
             lines[#lines + 1] = string.format("%s%s", r.ok and "✓" or "✗", r.label)
                 .. (r.ok and "" or (" — " .. (r.error or "")))
         end
-        info(table.concat(lines, "\n") .. string.format("\n\n%d saudáveis · %d com problema", r2.healthy, r2.unhealthy))
+        notify(table.concat(lines, "\n") .. string.format("\n%d saudáveis · %d com problema", r2.healthy, r2.unhealthy))
     end }
-
-    items[#items + 1] = { text = "Pasta de download: " .. (self.cfg:get("download_dir", "/mnt/us/documents")), callback = function()
-        close_ui()
-        local dlg = InputDialog:new{ title = "Pasta de download",
-            input = self.cfg:get("download_dir", ""),
-            buttons = { { { text = "OK", callback = function()
-                local p = dlg.getInputText and dlg:getInputText() or dlg.input or ""
-                self.cfg:set_raw("download_dir", p)
-                UIManager:close(dlg)
-                info("Destino: " .. p)
-            end } } } }
-        UIManager:show(dlg)
-    end }
-
     items[#items + 1] = { text = "◀ Voltar" }
     UIManager:show(TouchMenu:new{ title = "Configurações de fontes", item_table = items })
 end
 
----------------------------------------------------------------------------
--- Menu principal
----------------------------------------------------------------------------
-function S:addToMainMenu(menu_items, _maybe)
-    -- tolera as duas convenções do loadér:
-    --   plugin:addToMainMenu(items)  -> self=plugin, menu_items=items
-    --   plugin.addToMainMenu(items)  -> self=items,    menu_items=nil
-    if type(menu_items) ~= "table" then
-        menu_items = self
-    end
-    table.insert(menu_items, {
-        text = "GaloisLibrary",
-        sub_item_table = {
-            { text = "🔍 Buscar livros", callback = function() self:searchDialog() end },
-            { text = "⚙ Fontes (ativar/desativar + saúde)", callback = function() self:sourcesConfigMenu() end },
-            { text = "⬆ Verificar atualização", callback = function() self:checkUpdate(false) end },
-            { text = "ℹ Sobre", callback = function()
-                info(string.format("GaloisLibrary v%s\nFontes plugáveis com health check.",
-                    self:currentVersion()))
-            end },
-        },
-    })
-end
-
-return S
+return GaloisLibrary

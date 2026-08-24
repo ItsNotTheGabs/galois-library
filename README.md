@@ -11,15 +11,18 @@ no **Anna's Archive** e **Z-Library**, baixa direto para a biblioteca do Kindle
 ## Instalação (uma linha)
 
 ```sh
-curl -sSL https://SEU_HOST/galois-library/install.sh | sh
+curl -sSL https://itsnotthegabs.github.io/galois-library/install.sh | sh
 ```
 
 O instalador detecta o ambiente:
 
-- **Kindle** (`/mnt/us` presente) → instala em `/mnt/us/galois-library`, registra a
-  extensão KUAL (`extensions/galoislibrary`) e **instala o plugin KOReader** em
-  `/mnt/us/plugins/galoislibrary.koplugin` (aparece no menu do KOReader).
-- **Desktop Linux** → `~/.local/share/galois-library` (para testar tudo sem aparelho).
+- **Kindle** (`/mnt/us` presente) → instala o núcleo em `/mnt/us/galois-library`,
+  registra a extensão KUAL completa (`extensions/galoislibrary/config.xml + menu.json`)
+  e instala o plugin KOReader em **`/mnt/us/koreader/plugins/galoislibrary.koplugin`**.
+- **Desktop Linux** → `~/.local/share/galois-library` (para testar o núcleo).
+
+Depois da instalação, feche e abra o KOReader e reabra o KUAL. Se o seu KOReader
+estiver em outro caminho, use `GALOIS_KOREADER_ROOT=/caminho/koreader`.
 
 Variáveis de ambiente:
 
@@ -27,6 +30,7 @@ Variáveis de ambiente:
 GALOIS_REPO=ItsNotTheGabs/galois-library  # ou URL direta de release.json
 GALOIS_ASSET_URL=https://...   # tarball direto (dispensa GitHub API)
 GALOIS_PREFIX=/caminho/destino
+GALOIS_KOREADER_ROOT=/mnt/us/koreader
 ```
 
 ## DDoS-Guard — achado medido (importante!)
@@ -79,17 +83,21 @@ Registre em `sources.register_all({ ..., nova = require("nova") })` — nada mai
 ## Stack & testes
 
 - Lua 5.x / LuaJIT (KOReader) + `curl` (já no Kindle), núcleo Lua puro testável.
-- `lua tests/run_all.lua` → **83 testes verdes** (sources, catalog, settings,
+- `lua tests/run_all.lua` → **87 testes verdes** (sources, catalog, settings,
   update, health, lógica da UI com stubs KOReader).
+- `tests/test_plugin_load.lua` verifica o contrato do plugin; `tests/test_install_layout.sh`
+  verifica o layout real de KUAL/KOReader e diferencia o instalador antigo do atual.
+- O emulador desktop do KOReader é usado no smoke test `tests/koreader_pluginloader_smoke.lua`.
 - Download com **resume** (`-C -`) e **retry** (`--retry 2`).
 
 ## Roteiro
 
 - [x] Fontes plugáveis (anna + zlib) com toggle persistente e health
-- [x] Instalação `curl|sh` + auto-update (instala plugin KOReader também)
+- [x] Instalação `curl|sh` + auto-update (instala plugin KOReader em `koreader/plugins` e KUAL com `config.xml`)
 - [x] DDoS-Guard contornado: download via espelhos libgen (validado ao vivo)
 - [x] `cover_url` no contrato/parser/UI (render ImageWidget: pending device)
 - [x] CLI: search / toggle / health / update / resolve (E2E real validado)
+- [x] PluginLoader real do KOReader: descoberta, carga, instanciação e registro do menu validados no emulador
 - [ ] Validação on-device (visual, ImageWidget real, download no Wi-Fi real)
 - [ ] Login zlib + fila de downloads com gestão de falhas
-- [ ] Publicar repo + release real para o `curl|sh` funcionar no GitHub
+- [x] Repo + release GitHub + GitHub Pages publicados para o `curl|sh`
