@@ -59,7 +59,7 @@ package.preload["ui/widget/buttondialog"] = function() return ButtonDialog end
 
 -- carrega o plugin (core via package.path do repo root)
 package.path = "./?.lua;./sources/?.lua;" .. package.path
-local GaloisLib = dofile("koplugin/galoislibrary.koplugin/main.lua")
+local plugin = dofile("koplugin/galoislibrary.koplugin/main.lua")
 
 -- aplica override do núcleo com rede fake (fixtures)
 local net_fake = {
@@ -72,11 +72,19 @@ local net_fake = {
     save = function(u, p, t) local f = io.open(p, "wb"); f:write("x"); f:close(); return true end,
 }
 
-local plugin
+-- injeta os módulos do núcleo no plugin estático (sem chamar init real)
+plugin.net = net_fake
+local sources_root = require("sources.init")
+plugin.sources = sources_root
+plugin.catalog = require("catalog")
+plugin.health = require("health")
+plugin.update = require("update")
+plugin.cfg = require("settings").new({ defaults = { anna = true, zlib = true,
+    download_dir = "/tmp/gl_dl", repo = "tests/repo" } })
+-- registra as fontes reais no registry (anna+zlib; pode já ter fakes da suite)
+sources_root.register_all({ anna = require("anna"), zlib = require("zlib") })
 
 -- ---- 1. menu principal ----
-plugin = GaloisLib:new{ net = net_fake }
-plugin.net = net_fake -- garante que o init não sobrescreva com o real
 local menu_arr = {}
 plugin:addToMainMenu(menu_arr)
 T.eq("main menu: 1 item", #menu_arr, 1)
@@ -127,8 +135,8 @@ T.ok("busca: algum item carrega cover_url", any_cover)
 
 -- ---- 4. health: teste de fontes gera resumo ----
 -- rede que não responde nada => busca sem resultados (não é crash; info())
+local plugin2 = plugin
 local net_mudo = { get = function() return nil, "offline" end, save = function() return true end }
-local plugin2 = GaloisLib:new{ net = net_mudo }
 plugin2.net = net_mudo
 shown = {}
 plugin2:doSearch("nada")
