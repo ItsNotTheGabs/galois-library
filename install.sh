@@ -108,35 +108,62 @@ log "Arquivo de versão: $(cat "$PREFIX/version" 2>/dev/null || echo '?')"
 # --- integração Kindle (KUAL + plugin KOReader) ---------------------------
 if [ "$MODE" = "kindle" ]; then
     US="${GALOIS_US_ROOT:-/mnt/us}"   # raiz da partição de usuário (testável)
+
+    # KUAL só considera uma extensão válida quando existe config.xml.
+    # menu.json sozinho pode ser ignorado silenciosamente.
     EXT="$US/extensions/galoislibrary"
     mkdir -p "$EXT"
+    cat > "$EXT/config.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<extension>
+  <information>
+    <name>GaloisLibrary</name>
+    <version>${TAG:-unknown}</version>
+    <author>ItsNotTheGabs</author>
+    <id>GaloisLibrary</id>
+  </information>
+  <menus>
+    <menu type="json" dynamic="true">menu.json</menu>
+  </menus>
+</extension>
+EOF
     cat > "$EXT/menu.json" <<EOF
 {
   "items": [
-    {"name": "GaloisLibrary", "action": "sh run.sh"}
+    {
+      "name": "GaloisLibrary",
+      "priority": 10,
+      "action": "./run.sh",
+      "exitmenu": false,
+      "refresh": false
+    }
   ]
 }
 EOF
-    cat > "$EXT/run.sh" <<'EOF'
+    cat > "$EXT/run.sh" <<EOF
 #!/bin/sh
-# Abre o app (via kterm se existir; senão mostra instruções).
-if [ -x /mnt/us/kterm/bin/kterm.sh ]; then
-    cd /mnt/us/galois-library && /mnt/us/kterm/bin/kterm.sh -e sh -c 'echo "GaloisLibrary: use KOReader > menu > GaloisLibrary"; echo "ou: lua cli.lua search <query>"; read x' 2>/dev/null
-else
-    echo "Abra o KOReader -> menu -> GaloisLibrary" > /tmp/galois_hint
+US="${US}"
+APP="$PREFIX"
+if [ -x "$US/kterm/bin/kterm.sh" ]; then
+    cd "$APP" || exit 1
+    exec "$US/kterm/bin/kterm.sh" -e sh -c 'echo "GaloisLibrary instalado em $APP"; echo "Use KOReader > menu > GaloisLibrary"; echo; lua cli.lua health --all; echo; read x'
 fi
+printf '%s\\n' "GaloisLibrary: abra o KOReader e reinicie-o para carregar o plugin." > "$US/galois-library-kual-status.txt"
 EOF
     chmod +x "$EXT/run.sh"
     log "Extensão KUAL registrada em $EXT"
 
-    # plugin KOReader -> plugins/galoislibrary.koplugin
-    # (é o que faz o GaloisLibrary aparecer no menu do KOReader)
-    if [ -d "$PREFIX/koplugin/galoislibrary.koplugin" ]; then
-        KOPLUG="$US/plugins/galoislibrary.koplugin"
+    # KOReader no Kindle procura plugins externos em koreader/plugins.
+    # Não é /mnt/us/plugins (essa pasta não é a raiz de dados do KOReader).
+    KO_ROOT="${GALOIS_KOREADER_ROOT:-$US/koreader}"
+    KOPLUG="$KO_ROOT/plugins/galoislibrary.koplugin"
+    if [ -d "$PREFIX/koplugin/galoislibrary.koplugin" ] && [ -d "$KO_ROOT" ]; then
         rm -rf "$KOPLUG"
         mkdir -p "$(dirname "$KOPLUG")"
         cp -r "$PREFIX/koplugin/galoislibrary.koplugin" "$KOPLUG"
         log "Plugin KOReader instalado em $KOPLUG (reinicie o KOReader)"
+    elif [ ! -d "$KO_ROOT" ]; then
+        warn "KOReader não encontrado em $KO_ROOT; defina GALOIS_KOREADER_ROOT"
     else
         warn "aviso: $PREFIX/koplugin/galoislibrary.koplugin não encontrado (está no release?)"
     fi
