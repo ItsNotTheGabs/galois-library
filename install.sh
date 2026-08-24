@@ -26,12 +26,18 @@ ASSET_URL="${GALOIS_ASSET_URL:-}"
 VERSION_WANT="${GALOIS_VERSION:-latest}"
 
 # ---- destino --------------------------------------------------------------
-if [ -d /mnt/us ] && [ -w /mnt/us ]; then
+MODE="${GALOIS_MODE:-auto}"
+if [ "$MODE" = "auto" ]; then
+    if [ -d /mnt/us ] && [ -w /mnt/us ]; then
+        MODE="kindle"
+    else
+        MODE="desktop"
+    fi
+fi
+if [ "$MODE" = "kindle" ]; then
     PREFIX="${GALOIS_PREFIX:-/mnt/us/galois-library}"
-    MODE="kindle"
 else
     PREFIX="${GALOIS_PREFIX:-${XDG_DATA_HOME:-$HOME/.local/share}/galois-library}"
-    MODE="desktop"
 fi
 log "Ambiente: $MODE  ->  $PREFIX"
 
@@ -99,9 +105,10 @@ else
 fi
 log "Arquivo de versão: $(cat "$PREFIX/version" 2>/dev/null || echo '?')"
 
-# --- integração Kindle (KUAL) -----------------------------------------
+# --- integração Kindle (KUAL + plugin KOReader) ---------------------------
 if [ "$MODE" = "kindle" ]; then
-    EXT="/mnt/us/extensions/galoislibrary"
+    US="${GALOIS_US_ROOT:-/mnt/us}"   # raiz da partição de usuário (testável)
+    EXT="$US/extensions/galoislibrary"
     mkdir -p "$EXT"
     cat > "$EXT/menu.json" <<EOF
 {
@@ -114,13 +121,25 @@ EOF
 #!/bin/sh
 # Abre o app (via kterm se existir; senão mostra instruções).
 if [ -x /mnt/us/kterm/bin/kterm.sh ]; then
-    cd /mnt/us/galois-library && /mnt/us/kterm/bin/kterm.sh -e sh -c 'echo "GaloisLibrary: use KOReader > plugin > GaloisLibrary"; echo "ou: lua cli.lua search <query>"; read x' 2>/dev/null
+    cd /mnt/us/galois-library && /mnt/us/kterm/bin/kterm.sh -e sh -c 'echo "GaloisLibrary: use KOReader > menu > GaloisLibrary"; echo "ou: lua cli.lua search <query>"; read x' 2>/dev/null
 else
     echo "Abra o KOReader -> menu -> GaloisLibrary" > /tmp/galois_hint
 fi
 EOF
     chmod +x "$EXT/run.sh"
     log "Extensão KUAL registrada em $EXT"
+
+    # plugin KOReader -> plugins/galoislibrary.koplugin
+    # (é o que faz o GaloisLibrary aparecer no menu do KOReader)
+    if [ -d "$PREFIX/koplugin/galoislibrary.koplugin" ]; then
+        KOPLUG="$US/plugins/galoislibrary.koplugin"
+        rm -rf "$KOPLUG"
+        mkdir -p "$(dirname "$KOPLUG")"
+        cp -r "$PREFIX/koplugin/galoislibrary.koplugin" "$KOPLUG"
+        log "Plugin KOReader instalado em $KOPLUG (reinicie o KOReader)"
+    else
+        warn "aviso: $PREFIX/koplugin/galoislibrary.koplugin não encontrado (está no release?)"
+    fi
 fi
 
 # --- auto-verificação de versão (health/update) --------------------------

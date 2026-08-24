@@ -38,10 +38,11 @@ end
 
 -- C.resolve(net, registry, book, settings) -> url (string) or nil, err
 -- Intentaa resolver download coa fonte que devolveu o libro.
+-- (repassa as settings como opts, para mirrors etc. configurables no usuario)
 function C.resolve(net, registry, book, settings)
     local mod = registry.get(book.source)
     if not mod then return nil, "fonte desconocida: " .. tostring(book.source) end
-    return mod.resolve_download(net, book, {})
+    return mod.resolve_download(net, book, settings or {})
 end
 
 return C

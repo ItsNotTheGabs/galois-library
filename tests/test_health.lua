@@ -61,24 +61,40 @@ T.eq("health: exceção -> caída", (report_of(res3, "boom") or {}).ok, false)
 
 -- ---- 4. probes reais das fontes ----
 local anna = require("anna")
--- saudável: página com cards
-local net_ok = mock_net({ ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
-    '<div class="flex pt-3 pb-3 border-b border-gray-200">' ..
-    '<a href="/md5/' .. string.rep('c', 32) .. '">x</a></div>' })
+-- saudável: mirror responde com get.php
+local MIRROR_OK = '<a href="get.php?md5=0000&key=x">download</a>'
+local net_ok = mock_net({
+    ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
+        '<div class="flex pt-3 pb-3 border-b border-gray-200">' ..
+        '<a href="/md5/' .. string.rep('c', 32) .. '">x</a></div>',
+    ["https://libgen.li/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+    ["https://libgen.is/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+    ["https://libgen.so/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+})
 local hok = anna.health(net_ok, {})
-T.eq("anna.health: ok", hok.ok, true)
+T.eq("anna.health: ok (busca+mirror)", hok.ok, true)
 
--- caído: fingerprint (challenge)
-local net_ch = mock_net({ ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
-    '<script src="/js/fingerprint/iife.min.js"></script>' })
+-- busca com challenge (DDoS) mas mirror OK -> fonte SAUDÁVEL para download (nota)
+local net_ch = mock_net({
+    ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
+        '<script src="/js/fingerprint/iife.min.js"></script>',
+    ["https://libgen.li/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+    ["https://libgen.is/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+    ["https://libgen.so/ads.php?md5=" .. string.rep("0", 32)] = MIRROR_OK,
+})
 local hch = anna.health(net_ch, {})
-T.eq("anna.health: challenge -> caído", hch.ok, false)
-T.ok("anna.health: razão útil", string.find(hch.error or "", "anti-bot", 1, true) ~= nil)
+T.eq("anna.health: mirror ok, busca bloqueada -> ok", hch.ok, true)
+T.ok("anna.health: nota fala do bloqueio", string.find(hch.note or "", "DDoS", 1, true) ~= nil)
 
--- caído: rede
-local net_nil = mock_net({})
+-- mirror inacessível -> caído (mesmo que a busca pareça ok)
+local net_nil = mock_net({
+    ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
+        '<div class="flex pt-3 pb-3 border-b border-gray-200">' ..
+        '<a href="/md5/' .. string.rep('c', 32) .. '">x</a></div>',
+    -- sem rotas de espelho
+})
 local hn = anna.health(net_nil, {})
-T.eq("anna.health: sem rede -> caído", hn.ok, false)
+T.eq("anna.health: espelho morto -> caído", hn.ok, false)
 
 -- zlib saudável
 local zlib = require("zlib")

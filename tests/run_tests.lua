@@ -34,6 +34,9 @@ T.eq("anna formato epub", books[1].format, "epub")
 T.eq("anna formato pdf segundo", books[2].format, "pdf")
 T.eq("anna descrición", books[1].description, "A classic novel")
 T.eq("anna source", books[1].source, "anna")
+T.ok("anna cover_url presente", type(books[1].cover_url) == "string"
+    and string.find(books[1].cover_url, "covers.example", 1, true) ~= nil)
+T.ok("anna cover_url do 2º diferente", books[2].cover_url ~= books[1].cover_url)
 T.eq("anna baleiro", #anna.parse_search(F.HTML_EMPTY), 0)
 
 -- ---- 1b. Anna search() vía rede ----
@@ -41,6 +44,42 @@ local netA = fake_net({ ["https://annas-archive.gl/search?page=1&q=pride&content
 local res, err = anna.search(netA, "pride", 1, {})
 T.ok("anna search ok", res ~= nil)
 T.eq("anna search 2 libros", res and #res.results or -1, 2)
+
+-- ---- health: DOBRA probe (espelho) ----
+-- mirror ok + search ok
+local nhm = fake_net({
+    ["https://libgen.li/ads.php?md5=" .. string.rep("0", 32)] =
+        '<a href="get.php?md5=0000&key=x">download</a>',
+    ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
+        '<div class="flex pt-3 pb-3 border-b border-gray-200">' ..
+        '<a href="/md5/' .. string.rep('c', 32) .. '">x</a></div>',
+})
+local hbio = anna.health(nhm, {})
+T.eq("anna.health: mirror ok -> ok", hbio.ok, true)
+
+-- mirror ok + busca bloqueada (DDoS) -> AINDA ok com nota (download funciona)
+local nhm2 = fake_net({
+    ["https://libgen.li/ads.php?md5=" .. string.rep("0", 32)] =
+        '<div><a href="get.php?md5=0&key=y">d</a></div>',
+    ["https://annas-archive.gl/search?q=galois+health&page=1&content=book"] =
+        '<script src="/.well-known/ddos-guard/js-challenge/index.js"></script>',
+})
+local hb2 = anna.health(nhm2, { mirrors = { "https://libgen.li" } })
+T.eq("anna.health: mirror ok + busca bloqueada -> ok", hb2.ok, true)
+T.ok("anna.health: nota menciona DDoS-Guard", string.find(hb2.note or "", "DDoS", 1, true) ~= nil)
+
+-- mirror morto -> caído
+local nhm3 = fake_net({})
+local hb3 = anna.health(nhm3, { mirrors = { "https://libgen.li" } })
+T.eq("anna.health: mirror morto -> caído", hb3.ok, false)
+
+-- resolve_download: fallback entre espelhos
+local netfb = fake_net({
+    ["https://libgen.is/ads.php?md5=" .. F.MD5_A] = "sem get.php",
+    ["https://libgen.li/ads.php?md5=" .. F.MD5_A] = '<a href="get.php?md5=' .. F.MD5_A .. '&key=2">d</a>',
+})
+local ufb = anna.resolve_download(netfb, { md5 = F.MD5_A }, { mirrors = { "https://libgen.is", "https://libgen.li" } })
+T.eq("resolve: segunda mirror usada", ufb, "https://libgen.li/get.php?md5=" .. F.MD5_A .. "&key=2")
 
 -- ---- 1c. Anna resolve_download() via 'lgli' ----
 local lgli_html = '<html><a href="/get.php?md5=' .. F.MD5_A .. '&key=1">download</a></html>'

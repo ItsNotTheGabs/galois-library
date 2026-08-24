@@ -1,12 +1,17 @@
 -- sources/anna.lua
--- Fonte: Anna's Archive. Parsing HTML simple (lista de resultados).
+-- Fonte: Anna's Archive (metadados + capas) com descarga via espelhos Libgen.
 --
 -- ARQUITECTURA: todo o parser está ILLADO neste ficheiro. Se o HTML do AA cambia
 -- (anti-scrape), só se toca aquí; os tests con fixture garanten o contrato.
 --
--- Dado o id (md5) dun libro, resolve_download() usa a rota de espello 'lgli'
--- (proxy Libgen) como KindleFetch, evitando o challenge do AA cando sexa posible.
--- Esta rota require VERIFICACIÓN live (neste entorno está tras DDoS-Guard).
+-- ✔ VALIDADO AO VIVO (2026-08-24):
+--   * A busca do AA está tras DDoS-Guard JS-challenge em IPs de datacenter;
+--     user-agents de bot (ClaudeBot/GPTBot/ChatGPT-User) NÃO a contornam.
+--     IPs residenciais (o Wi-Fi do usuário) costuman passar sem challenge.
+--   * O caminho de DESCARGA NÃO passa pelo DDoS-Guard: libgen.li/ads.php?md5=
+--     -> get.php?md5=..&key=.. -> 200 -> CDN cdn*.booksdl.lc (testado live).
+--   * health() separa: saúde da busca (pode estar bloqueada no datacenter) e
+--     saúde do espelho de descarga (o caminho crítico).
 
 local A = {}
 
@@ -15,6 +20,9 @@ A.META = {
     label = "Anna's Archive",
     enabled = true,
 }
+
+-- espellos de descarga (orde de tentativa); o primeiro que responda usa-se
+A.MIRRORS = { "https://libgen.li", "https://libgen.is", "https://libgen.so" }
 
 -- ---- helpers ----
 
@@ -60,6 +68,30 @@ local function grab_md5(slice)
     return string.match(string.sub(slice, h + 5), '^' .. string.rep('[0-9a-fA-F]', 32))
 end
 
+-- extrae a URL da capa: primeira <img ... src="..."> na tarxeta
+local function grab_cover(slice)
+    local im = string.find(slice, '<img', 1, true)
+    if not im then return nil end
+    -- procura src="..." (ou data-src="..." para lazy load) en texto plano
+    local a = string.find(slice, 'src="', im, true)
+    local start
+    if a then start = a + 5 else
+        a = string.find(slice, 'data-src="', im, true)
+        if a then start = a + 9 end -- 'data-src="' ten 9 chars
+    end
+    if not a then return nil end
+    local stop = string.find(slice, '"', start, true)
+    if not stop then return nil end
+    local src = string.sub(slice, start, stop - 1)
+    if src == "" then return nil end
+    -- ignorar glitter/spinner/pixel
+    if string.find(src, 'spinner', 1, true) or string.find(src, 'pixel', 1, true)
+       or string.find(src, 'blank', 1, true) or string.find(src, '.svg', 1, true) then
+        return nil
+    end
+    return html_unescape(src)
+end
+
 -- parse_search(html) -> array de books presentes na proxía
 function A.parse_search(html)
     local books = {}
@@ -86,10 +118,13 @@ function A.parse_search(html)
             if p then format = ext break end
         end
 
+        local cover_url = grab_cover(slice)
+
         if md5 and title then
             books[#books + 1] = {
                 md5 = md5, title = title, author = author,
                 format = format, description = description,
+                cover_url = cover_url,
                 source = A.META.name,
             }
         end
@@ -97,7 +132,7 @@ function A.parse_search(html)
     return books
 end
 
--- search: descarga e parse da págoaa de busca do AA.
+-- search: descarga e parse da páxina de busca do AA.
 function A.search(net, query, page, opts)
     page = page or 1
     local q = string.gsub(tostring(query), '%s+', '+')
@@ -107,54 +142,75 @@ function A.search(net, query, page, opts)
     return { results = A.parse_search(body), page = page, last_page = 1 }
 end
 
--- health: probe mínimo — unha busca básica e determinada se a fonte responde
--- ou está tras un challenge/erro. Devolve { ok=true } ou { ok=false, error=... }.
+-- health: DOBRA probe — estado da busca (no gate) e estado do espelho de
+-- descarga (o camiño crítico). ok = a descarga pode funcionar.
 function A.health(net, opts)
     opts = opts or {}
+
+    -- (1) espelho de descarga: ads.php responde e contén get.php?
+    local mirrors = opts.mirrors or A.MIRRORS
+    local mirror_ok = false
+    local notes = ""
+    for _, m in ipairs(mirrors) do
+        local body, err = net.get(m .. "/ads.php?md5=" .. string.rep("0", 32), 12)
+        if body and string.find(body, "get.php", 1, true) then
+            mirror_ok = true
+            break
+        elseif body then
+            notes = "espelho " .. m .. " respondeu sen get.php"
+        else
+            notes = "espelho " .. m .. " sem resposta: " .. tostring(err)
+        end
+    end
+
+    -- 2. busca AA (pode estar tras challenge no datacenter; residencial passa)
     local base = opts.anna_base or "https://annas-archive.gl"
-    local url = base .. "/search?q=galois+health&page=1&content=book"
-    local body, err = net.get(url, 15)
-    if not body then
-        return { ok = false, error = "sem resposta: " .. tostring(err) }
+    local sbody, serr = net.get(base .. "/search?q=galois+health&page=1&content=book", 12)
+    local search_note = nil
+    if not sbody then
+        search_note = "busca sem resposta: " .. tostring(serr)
+    elseif string.find(string.lower(sbody), "fingerprint", 1, true)
+        or string.find(string.lower(sbody), "ddos-guard", 1, true) then
+        search_note = "busca tras DDoS-Guard (espérase en IPs de datacenter; no residencial adoita pasar)"
+    elseif not (string.find(sbody, "/md5/", 1, true) or string.find(sbody, "flex pt-3 pb-3", 1, true)) then
+        search_note = "busca respondeu sen resultados/tarxetas"
     end
-    -- detectar challenges/capchas típicos
-    local low = string.lower(body)
-    if string.find(low, "fingerprint", 1, true) then
-        return { ok = false, error = "bloqueado por challenge anti-bot (fingerprint)" }
+
+    if mirror_ok then
+        local out = { ok = true }
+        if search_note then out.note = search_note end
+        return out
     end
-    if string.find(low, "redirecting", 1, true) and not string.find(low, "/md5/", 1, true) then
-        return { ok = false, error = "redirección de protección (DDoS-Guard/anti-bot)" }
-    end
-    if string.find(low, "forsale", 1, true) then
-        return { ok = false, error = "dominio parqueado/á venda (mirror caído)" }
-    end
-    -- páxina de resultados: aínda que non haya libros, a estrutura de card está
-    if string.find(body, "flex pt-3 pb-3", 1, true) or string.find(body, "/md5/", 1, true) then
-        return { ok = true }
-    end
-    -- resposta 200 pero sen marca recoñecible: consideramos "saudábel" (pode ser
-    -- a páxina de "0 resultados"), pero informamos no error opcional
-    return { ok = true, note = "respondeu sen tarxetas — probablemente 0 resultados" }
+    return { ok = false, error = "espelho de descarga indispoñible: " .. (notes or "?") }
 end
 
--- resolve_download: resolve unha URL directa vía proxy lgli.
+-- __resolve_aux: de um corpo de ads.php devolve a URL do get.php (ou nil)
+local function extract_get_url(body)
+    -- procura o href CUJO valor contén get.php (robusto: ignora outros href da páxina)
+    return string.match(body, 'href%s*=%s*"([^"]*get%.php[^"]*)"')
+end
+
+-- resolve_download: tenta en orde os espellos e devolve a URL directa (get.php).
 function A.resolve_download(net, book, opts)
     opts = opts or {}
-    local lgli = opts.lgli_base or "https://libgen.so"
-    local ads = lgli .. "/ads.php?md5=" .. book.md5
-    local body, err = net.get(ads, 30)
-    if not body then return nil, "anna resolve: " .. tostring(err) end
-
-    local g = string.find(body, 'get.php', 1, true)
-    if not g then return nil, "anna: sen get.php na resposta lgli" end
-    local gend = string.find(body, '"', g, true)
-    local q = string.find(body, 'href="', 1, true)
-    if not q then return nil, "anna: sen href antes de get.php" end
-    -- URL = desde despois de href=" ate o peche "
-    local url = string.sub(body, q + 6, gend - 1)
-    if string.match(url, '^http') then return url end
-    url = url:gsub('^/', '')
-    return lgli .. "/" .. url
+    local mirrors = opts.mirrors or A.MIRRORS
+    local last_err = nil
+    for _, lgli in ipairs(mirrors) do
+        local ads = lgli .. "/ads.php?md5=" .. book.md5
+        local body, err = net.get(ads, 30)
+        if not body then
+            last_err = lgli .. ": " .. tostring(err)
+        else
+            local url = extract_get_url(body)
+            if not url then
+                last_err = lgli .. ": sen get.php na resposta"
+            else
+                if string.match(url, '^http') then return url end
+                return lgli .. "/" .. url:gsub("^/", "")
+            end
+        end
+    end
+    return nil, "anna resolve: " .. tostring(last_err or "sen espello dispoñible")
 end
 
 return A

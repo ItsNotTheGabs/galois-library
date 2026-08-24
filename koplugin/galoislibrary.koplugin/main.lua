@@ -1,4 +1,4 @@
--- koplugin/annakdl.koplugin/main.lua
+-- koplugin/galoislibrary.koplugin/main.lua
 -- GaloisLibrary — UI KOReader (e-ink).
 --
 -- Screens:
@@ -34,7 +34,7 @@ package.path = GALOIS_DIR .. "/?.lua;" .. GALOIS_DIR .. "/sources/?.lua;" .. pac
 local GaloisLib = WidgetContainer:extend("GaloisLibrary")
 
 function GaloisLib:init()
-    self.name = "annakdl"
+    self.name = "galoislibrary"
     self.net = require("net_curl")
     self.sources = require("sources.init")
     self.catalog = require("catalog")
@@ -174,6 +174,10 @@ function GaloisLib:doSearch(q)
         local label = string.format("%s  [%s] %s", b.title, b.source, b.format or "?")
         items[#items + 1] = {
             text = label,
+            -- cover_url (se a fonte tiver) viaja no item; a UI real mostra a capa
+            -- via ImageWidget (cache em /tmp/galois-covers/<md5>.jpg)
+            cover_url = b.cover_url,
+            book = b,
             callback = function() self:bookDetailMenu(b) end,
         }
     end

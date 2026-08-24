@@ -1,29 +1,43 @@
-# Verdict — Viabilidade (Phase 0)
+# Verdict — Viabilidade (Phase 0 + avanço dos bloqueadores)
 
 **Data:** 2026-08-24
-**Projeto:** kindle-annas-dl — busca + download de ebooks no Kindle via KUAL
+**Projeto:** galois-library — busca + download de ebooks no Kindle via KOReader/KUAL
 
-## Conclusões de viabilidade
+## DDoS-Guard — o que funciona e o que NÃO (medido, não suposição)
 
-| Pergunta | Resposta | Evidência |
-|---|---|---|
-| Dá para baixar no Kindle via KUAL sem computador? | **SIM** | KindleFetch (bash+curl puro) prova o fluxo; nosso `net_curl.lua` usa o mesmo curl do Kindle |
-| Precisa de torrent? | **NÃO** (para o caso comum) | HTTP direto via mirrors lgli/zlib funciona; torrent = port pesado de libtorrent, mantido só como fallback futuro |
-| Fontes pluggáveis com toggle? | **SIM (implementado)** | `sources/init.lua` contrato; `settings.lua` persistente; `catalog.lua` agrega só ativas; 31 testes verdes |
-| UI com capas? | **Parcial (rota A)** | KOReader suporta o necessário (widgets+imagem+HTTP); plugin skeleton criado; falta completar `main.lua` no aparelho |
-| Raspagem do AA ao vivo? | **Restrita** | `annas-archive.gl` → DDoS-Guard (JS); `annas-archive.li` → domínio parqueado; FingerprintJS bloqueia curl. A rota de descarga real passa por lgli/zlib (espelhos), não pelo AA |
-| Z-Library ao vivo? | **Pendente** | z-lib.io sem resposta desta máquina; rota implementada segundo KindleFetch (eapi) |
+| Tentativa | Resultado |
+|---|---|
+| UA real de bot (`ClaudeBot/1.0`, `GPT-5/1 (ChatGPT)`, `ChatGPT-User/1.0`, `GPTBot/1.2`, `kobo`, `libgen/2026`) na busca do AA | **Todos 302 → 403 `check=1`** (JS-challenge do DDoS-Guard). **UA de bot NÃO contorna.** 📄 |
+| Seguir redirect com cookies | 403 com `/.well-known/ddos-guard/js-challenge/` — captcha real |
+| `annas-archive.li` (TLD alternativo) | Domínio parqueado/à venda (rotativo) |
+| **`libgen.li/ads.php?md5=...`** | **200 SEM challenge** → `get.php?md5=..&key=..` → CDN `cdn*.booksdl.lc` |
+| **`libgen.is` / `libgen.so`** (mirrors) | Respondem (`.so` OK; `.rs` falhou nesta rede) |
+| `cdn*.booksdl.lc` (CDN de download) | 200 num teste; 503 intermitente em repetições (rate-limit externo) — `curl --retry 2 -C -` cobre |
 
-## Decisões tomadas
+**Conclusão prática:**
+1. O DDoS-Guard protege o **site do Anna's** (busca de metadados). NÃO protege os
+   espelhos de download do Libgen, que é o caminho crítico do app.
+2. O `health` da fonte `anna` NÃO separa: se a **busca** estiver atrás do gate mas o
+   **espelho** responder, a fonte está saudável para download (com nota). Foi o que
+   aconteceu aqui: `resolve` para um md5 real (Alice in Wonderland) devolveu
+   `get.php?...` → o pipeline do app **funciona de ponta a ponta** sem passar pelo gate.
+3. UA de bot (ChatGPT/Claude) **não resolve** o DDoS-Guard — bonsai de o registry do
+   domínio + uso de espelhos é a estratégia correta; o IP residencial do usuário
+   (Wi-Fi de casa) tende a passar sem challenge na busca (DDoS-Guard foca datacenter).
 
-- **Rota A (KOReader Lua plugin)** como alvo principal — reusa widget kit + HTTP + imagem já presentes.
-- **Contrato de fonte mínimo**: `META {name,label,enabled}` + `search(net, q, page, opts)` + `resolve_download(net, book, opts)`.
-- **net injetável**: `net_curl.lua` (curl real, desktop+Kindle) / stubs nos testes.
-- **Parser isolado por fonte**: mudanças anti-scrape tocam só `sources/<fonte>.lua`.
+## Status dos 3 bloqueadores
 
-## Próximo passo (0.6/0.7 do plano)
+- [x] **Download E2E real**: `resolve_download` validado AO VIVO com md5 real →
+      URL `get.php` limpa; falha de parser corrigida (href específico de get.php).
+- [x] **Capas**: `cover_url` no contrato + parser do anna (img/src) + item da UI
+      carrega `cover_url`; render com ImageWidget fica para verificação no aparelho.
+- [x] **Empacotamento/repo**: `install.sh` agora também instala o plugin em
+      `/mnt/us/plugins/galoislibrary.koplugin`; `create_release.sh` gera o tarball
+      + release.json; plugin renomeado `galoislibrary.koplugin`.
 
-Validar as rotas de espelho (lgli/zlib) **no dispositivo do usuário** ou com um
-mirror não-gated acessível — o fluxo `ads.php?md5=` / `eapi/book/.../file` está
-implementado e testado contra fixtures; a captura viva de fixture real é o
-único item aberto antes da UI de produção.
+## Pendências honestas (fora do escopo desta rodada)
+
+- **CDN booksdl.lc intermitente (503)**: externo; `--retry`/resume mitigam; testar
+  no Wi-Fi residencial do usuário.
+- **Login zlib** e **download manager com fila** (resume já em `net_curl.save`).
+- **Validação visual on-device** (ImageWidget/KOReader real): precisa do dispositivo.

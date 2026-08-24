@@ -15,9 +15,11 @@ local F = {}
 local MD5_A = string.rep('a', 32)
 local MD5_B = string.rep('b', 32)
 
-local function card(md5, title, author, ext, desc)
+local function card(md5, title, author, ext, desc, cover)
     return '<div class="flex pt-3 pb-3 border-b border-gray-200">'
-        .. '<div class="w-16 h-24 bg-gray-200"></div>'
+        .. '<div class="w-16 h-24 bg-gray-200">'
+        .. '<img src="' .. (cover or ("https://covers.example/" .. md5:sub(1, 8) .. ".jpg"))
+        .. '" alt="cover" loading="lazy" class="w-full h-full object-cover"></div>'
         .. '<div class="grow px-4 py-2">'
         .. '<div class="font-bold text-violet-900 line-clamp-[5]" data-content="' .. title .. '">' .. title .. '</div>'
         .. '<div class="font-bold text-amber-800 line-clamp-[2]" data-content="' .. author .. '">' .. author .. '</div>'

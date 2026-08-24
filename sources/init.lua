@@ -13,7 +13,8 @@
 --   net.get(url, timeout_s) -> body (string) | nil, err_msg
 --   net.save(url, path, timeout_s) -> true | nil, err_msg   (para downloads)
 --
--- `book` = { md5, title, author, format, description, source }
+-- `book` = { md5, title, author, format, description, source, cover_url? }
+--   cover_url (opcional): URL da capa, preenchida pela fonte no parse de busca.
 -- As fuentes fan **só** raspado/parse; nenhuma chama a rede directamente (via `net`).
 
 local M = {}
@@ -41,11 +42,14 @@ function M.list()
 end
 
 -- Função para o app cargar todas las fuentes disponibles.
--- recibe um directorio impl de fuentes (ops):
---   { anna = require("sources.anna"), zlib = require("sources.zlib"), ... }
+-- recibe unha táboa { name = module, ... }; garda en orde alfabética
+-- (determinista — a UI non quere resultados en orde aleatoria).
 function M.register_all(impls)
-    for name, mod in pairs(impls) do
-        load_source(name, mod)
+    local names = {}
+    for name in pairs(impls) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        load_source(name, impls[name])
     end
 end
 

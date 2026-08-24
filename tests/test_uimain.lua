@@ -59,7 +59,7 @@ package.preload["ui/widget/buttondialog"] = function() return ButtonDialog end
 
 -- carrega o plugin (core via package.path do repo root)
 package.path = "./?.lua;./sources/?.lua;" .. package.path
-local GaloisLib = dofile("koplugin/annakdl.koplugin/main.lua")
+local GaloisLib = dofile("koplugin/galoislibrary.koplugin/main.lua")
 
 -- aplica override do núcleo com rede fake (fixtures)
 local net_fake = {
@@ -115,6 +115,15 @@ end
 local res_joined = table.concat(all_texts, "\n")
 T.ok("busca: contém resultado Anna (Pride)", string.find(res_joined, "Pride", 1, true) ~= nil)
 T.ok("busca: contém resultado zlib (Dune)", string.find(res_joined, "Dune", 1, true) ~= nil)
+-- cover_url viaja no item (para render futuro) — pelo menos um item com capa
+-- (a ordem é determinística; o zlib não expõe cover_url, o anna sim)
+local any_cover = false
+for _, it in ipairs(res_menu.item_table) do
+    if type(it.cover_url) == "string" and string.find(it.cover_url, "covers.example", 1, true) then
+        any_cover = true
+    end
+end
+T.ok("busca: algum item carrega cover_url", any_cover)
 
 -- ---- 4. health: teste de fontes gera resumo ----
 -- rede que não responde nada => busca sem resultados (não é crash; info())

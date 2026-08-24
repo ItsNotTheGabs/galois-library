@@ -26,9 +26,11 @@ end
 
 -- save(url, path, timeout) -> true | nil, motivo
 -- Descarga e escribe directo a un arquivo (sen cargalo todo en memoria).
+-- Inclúe retry (2) e resume (-C -) para redes paradas/kindle wifi caseiro.
 function C.save(url, path, timeout)
     timeout = timeout or 30
-    local cmd = string.format("curl -s -m %d -L -A 'Mozilla/5.0 (galois)' -o %s %s",
+    local cmd = string.format(
+        "curl -s -m %d -L --retry 2 --retry-delay 2 -C - -A 'Mozilla/5.0 (galois)' -o %s %s",
         timeout, shell_quote(path), shell_quote(url))
     local f = io.popen(cmd, "r")
     if not f then return nil, "non podo executar curl save" end
