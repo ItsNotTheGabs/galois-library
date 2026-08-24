@@ -1,6 +1,6 @@
 return {
-    title = "AnnaDownloader",
-    description = "Busca e descarga ebooks (Anna's Archive / Z-Library) á biblioteca do Kindle.",
+    title = "GaloisLibrary",
+    description = "Busca e baixa ebooks (Anna's Archive / Z-Library) com fontes plugáveis e health check. Instalação e update: curl|sh.",
     version = 0.1,
-    author = "kindle-annas-dl",
+    author = "galois-library",
 }

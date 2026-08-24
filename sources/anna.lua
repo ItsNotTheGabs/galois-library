@@ -107,6 +107,36 @@ function A.search(net, query, page, opts)
     return { results = A.parse_search(body), page = page, last_page = 1 }
 end
 
+-- health: probe mínimo — unha busca básica e determinada se a fonte responde
+-- ou está tras un challenge/erro. Devolve { ok=true } ou { ok=false, error=... }.
+function A.health(net, opts)
+    opts = opts or {}
+    local base = opts.anna_base or "https://annas-archive.gl"
+    local url = base .. "/search?q=galois+health&page=1&content=book"
+    local body, err = net.get(url, 15)
+    if not body then
+        return { ok = false, error = "sem resposta: " .. tostring(err) }
+    end
+    -- detectar challenges/capchas típicos
+    local low = string.lower(body)
+    if string.find(low, "fingerprint", 1, true) then
+        return { ok = false, error = "bloqueado por challenge anti-bot (fingerprint)" }
+    end
+    if string.find(low, "redirecting", 1, true) and not string.find(low, "/md5/", 1, true) then
+        return { ok = false, error = "redirección de protección (DDoS-Guard/anti-bot)" }
+    end
+    if string.find(low, "forsale", 1, true) then
+        return { ok = false, error = "dominio parqueado/á venda (mirror caído)" }
+    end
+    -- páxina de resultados: aínda que non haya libros, a estrutura de card está
+    if string.find(body, "flex pt-3 pb-3", 1, true) or string.find(body, "/md5/", 1, true) then
+        return { ok = true }
+    end
+    -- resposta 200 pero sen marca recoñecible: consideramos "saudábel" (pode ser
+    -- a páxina de "0 resultados"), pero informamos no error opcional
+    return { ok = true, note = "respondeu sen tarxetas — probablemente 0 resultados" }
+end
+
 -- resolve_download: resolve unha URL directa vía proxy lgli.
 function A.resolve_download(net, book, opts)
     opts = opts or {}

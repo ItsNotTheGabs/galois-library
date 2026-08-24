@@ -19,7 +19,7 @@ local catalog  = require("catalog")
 local anna = require("anna")
 local zlib = require("zlib")
 
-local CFG_PATH = os.getenv("HOME") .. "/.config/kindle-annas-dl/sources.cfg"
+local CFG_PATH = os.getenv("HOME") .. "/.config/galois-library/sources.cfg"
 local fs_real = {
     read = function(p) local f = io.open(p, "r"); if not f then return nil end
         local d = f:read("*a"); f:close(); return d end,
@@ -121,6 +121,64 @@ local function cmd_resolve_md5(md5, source)
     if url then print(url) else print("erro: " .. tostring(err)) end
 end
 
+-- health: testa a saúde de todas as fontes (probe mínimo em cada una).
+local function cmd_health(args)
+    local only_enabled = true
+    for i = 1, #args do
+        if args[i] == "--all" then only_enabled = false end
+    end
+    local health_mod = require("health")
+    local res = health_mod.run(require("net_curl"), sources, cfg, { only_enabled = only_enabled })
+    print(health_mod.format(res))
+    -- exit code: 1 se houver alguma caída (para cron/monitor)
+    os.exit(res.unhealthy > 0 and 1 or 0)
+end
+
+-- update: verifica / aplica atualização da própria app.
+local function cmd_update(args)
+    local apply = false
+    for i = 1, #args do
+        if args[i] == "--apply" then apply = true end
+    end
+    local repo = os.getenv("GALOIS_REPO") or "galois-library/galois-library"
+    local prefix = os.getenv("GALOIS_PREFIX")
+    if not prefix then
+        -- Kindle: /mnt/us/galois-library ; desktop: ~/.local/share/galois-library
+        local f = io.open("/mnt/us", "r")
+        if f then prefix = "/mnt/us/galois-library" else
+            prefix = (os.getenv("XDG_DATA_HOME") or os.getenv("HOME") .. "/.local/share") .. "/galois-library"
+        end
+    end
+
+    -- versão atual: arquivo `version` no prefixo
+    local cur = "0.0.0"
+    local vf = io.open(prefix .. "/version", "rb")
+    if vf then cur = vf:read("*a"):gsub("%s+$", ""); vf:close() end
+
+    local upd = require("update")
+    local net = require("net_curl")
+    local info, err = upd.check(net, cur, repo)
+    if not info then
+        print("Não consegui verificar atualização: " .. tostring(err))
+        return
+    end
+    if not info.has_update then
+        print("GaloisLibrary já está atualizado (v" .. cur .. ")")
+        return
+    end
+    print(string.format("Nova versão %s disponível (atual: %s)", info.latest, cur))
+    if not apply then
+        print("Rode `lua cli.lua update --apply` para atualizar.")
+        return
+    end
+    local ok, aerr = upd.self_update(net, repo, prefix, cur)
+    if ok then
+        print("Atualizado para " .. info.latest .. " ✓")
+    else
+        print("Falha ao atualizar: " .. tostring(aerr))
+    end
+end
+
 -- ---- main ----
 
 local cmd = arg[1]
@@ -130,6 +188,10 @@ elseif cmd == "toggle" then
     cmd_toggle(arg[2], arg[3])
 elseif cmd == "search" then
     cmd_search(arg)
+elseif cmd == "health" then
+    cmd_health(arg)
+elseif cmd == "update" then
+    cmd_update(arg)
 elseif cmd == "resolve" then
     local md5 = arg[2]
     local src = "anna"
@@ -142,5 +204,7 @@ else
   lua cli.lua sources
   lua cli.lua toggle <nome> [off]
   lua cli.lua search <query> [--sources anna,zlib] [--fixtures]
+  lua cli.lua health [--all]          # testa saúde das fontes (exit 1 se algo caído)
+  lua cli.lua update [--apply]        # verifica/atualiza a própria app
   lua cli.lua resolve <md5> [--source anna|zlib]])
 end

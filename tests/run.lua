@@ -24,8 +24,17 @@ function T.ok(name, cond)
 end
 
 T.done = function()
-    print(("==== %d passed, %d failed ===="):format(passed, failed))
-    os.exit(failed == 0 and 0 or 1)
+    local failed_here, passed_here = failed, passed
+    if _G.__GALOIS_SUITE__ then
+        _G.__GALOIS_PASSED__ = (_G.__GALOIS_PASSED__ or 0) + passed_here
+        _G.__GALOIS_FAILED__ = (_G.__GALOIS_FAILED__ or 0) + failed_here
+    end
+    print(("==== %d passed, %d failed ===="):format(passed_here, failed_here))
+    if not _G.__GALOIS_SUITE__ then
+        os.exit(failed_here == 0 and 0 or 1)
+    end
+    -- dentro da suite: non cortamos, permitimos continuar cos demais
+    passed, failed = 0, 0
 end
 
 return T

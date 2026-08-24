@@ -54,10 +54,28 @@ end
 
 function S:set(name, bool)
     self.state[name] = bool and S.ENABLED or S.DISABLED
+    self:_persist()
+end
+
+-- set_raw: valor libre (non booleano) — p.ex. download_dir=/mnt/us/documents
+function S:set_raw(k, v)
+    self.state[k] = tostring(v)
+    self:_persist()
+end
+
+-- get: valor cru (para configs non booleanas)
+function S:get(k, default)
+    local v = self.state[k]
+    if v == nil then return default end
+    return v
+end
+
+-- persist interna (extrae a escritura anterior)
+function S:_persist()
     if self.path and self.fs then
         local lines = {}
         for k, v in pairs(self.state) do
-            lines[#lines+1] = k .. "=" .. v
+            lines[#lines + 1] = k .. "=" .. v
         end
         table.sort(lines)
         self.fs.write(self.path, table.concat(lines, "\n") .. "\n")

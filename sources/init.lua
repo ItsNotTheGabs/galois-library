@@ -1,13 +1,17 @@
 -- sources/init.lua
 -- Registro de fontes pluggables para o catalogo de ebooks.
 --
--- CONTRATO DE FONTE: qualquer fonte nova (anna, zlib, futuras...) deve exponer:
+-- CONTRATO DE FONTE: cualquier fonte nova (anna, zlib, futuras...) debe exponer:
 --   meta = { name="<id unico>", label="Nome legible", enabled_default=true|false }
 --   search(net, query, page, settings) -> { books={...}, page, last_page } | nil, error
 --   resolve_download(net, book, settings) -> url_string | nil
+--   health(net, settings) -> { ok=true } | { ok=false, error="motivo" }
+--       Probe mínimo (busca básica) para detectar se a fonte está SAUDÁVEL.
+--       É o que alimenta o status nas configs e o monitor ("fonte morreu?").
 --
--- `net` é inyectado em runtime para poder stubear nas tests:
---   net.get(url, timeout_s) -> { status, body, url_effective } | nil, err_msg
+-- `net` é inyectado en runtime para poder stubear nas tests:
+--   net.get(url, timeout_s) -> body (string) | nil, err_msg
+--   net.save(url, path, timeout_s) -> true | nil, err_msg   (para downloads)
 --
 -- `book` = { md5, title, author, format, description, source }
 -- As fuentes fan **só** raspado/parse; nenhuma chama a rede directamente (via `net`).
@@ -58,6 +62,7 @@ function M.validate(mod)
     end
     if type(mod.search) ~= "function" then return false, "falta search()" end
     if type(mod.resolve_download) ~= "function" then return false, "falta resolve_download()" end
+    if type(mod.health) ~= "function" then return false, "falta health() (status da fonte)" end
     return true
 end
 
