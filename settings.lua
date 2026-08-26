@@ -53,14 +53,26 @@ function S:enabled(name)
 end
 
 function S:set(name, bool)
+    local previous = self.state[name]
     self.state[name] = bool and S.ENABLED or S.DISABLED
-    self:_persist()
+    local ok, err = self:_persist()
+    if not ok then
+        self.state[name] = previous
+        return nil, err
+    end
+    return true
 end
 
 -- set_raw: valor libre (non booleano) — p.ex. download_dir=/mnt/us/documents
 function S:set_raw(k, v)
+    local previous = self.state[k]
     self.state[k] = tostring(v)
-    self:_persist()
+    local ok, err = self:_persist()
+    if not ok then
+        self.state[k] = previous
+        return nil, err
+    end
+    return true
 end
 
 -- get: valor cru (para configs non booleanas)
@@ -72,21 +84,23 @@ end
 
 -- persist interna (extrae a escritura anterior)
 function S:_persist()
-    if self.path and self.fs then
-        local lines = {}
-        for k, v in pairs(self.state) do
-            lines[#lines + 1] = k .. "=" .. v
-        end
-        table.sort(lines)
-        self.fs.write(self.path, table.concat(lines, "\n") .. "\n")
+    if not self.path or not self.fs then return true end
+    local lines = {}
+    for k, v in pairs(self.state) do
+        lines[#lines + 1] = k .. "=" .. v
     end
+    table.sort(lines)
+    local ok, err = self.fs.write(self.path, table.concat(lines, "\n") .. "\n")
+    if not ok then return nil, err or "falha ao persistir configurações" end
+    return true
 end
 
 -- toggle convenience
 function S:toggle(name, value_or_nil)
     local nxt = value_or_nil
     if nxt == nil then nxt = not self:enabled(name) end
-    self:set(name, nxt)
+    local ok, err = self:set(name, nxt)
+    if not ok then return nil, err end
     return nxt
 end
 

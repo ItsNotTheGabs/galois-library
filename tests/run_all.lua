@@ -7,8 +7,9 @@ _G.__GALOIS_SUITE__ = true
 
 dofile("./tests/run_tests.lua")
 dofile("./tests/test_update.lua")
+dofile("./tests/test_net_curl.lua")
 dofile("./tests/test_health.lua")
-dofile("./tests/test_uimain.lua")
+dofile("./tests/test_kual_app.lua")
 
 print(("======================================"))
 print(("TOTAL: %d passed, %d failed")

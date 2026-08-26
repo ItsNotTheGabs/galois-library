@@ -116,7 +116,7 @@ local settings = require("settings")
 local fs_mem = { data = nil }
 local fake_fs = {
     read = function(_) return fs_mem.data end,
-    write = function(_, d) fs_mem.data = d end,
+    write = function(_, d) fs_mem.data = d; return true end,
 }
 local s = settings.new({ path = "/tmp/x", fs = fake_fs, defaults = { anna = true, zlib = true } })
 T.eq("set default anna on", s:enabled("anna"), true)
@@ -124,6 +124,14 @@ T.eq("set zlib default on", s:enabled("zlib"), true)
 s:set("zlib", false)
 T.eq("set zlib off", s:enabled("zlib"), false)
 T.eq("set persisted", fs_mem.data and fs_mem.data:find("zlib=0") ~= nil, true)
+local failing_settings = settings.new({
+    path = "/tmp/fail",
+    fs = { read = function() return nil end, write = function() return nil, "readonly" end },
+    defaults = { zlib = true },
+})
+local toggled, toggle_err = failing_settings:toggle("zlib", false)
+T.ok("toggle propaga falha de persistência", toggled == nil and toggle_err == "readonly")
+T.eq("toggle falho restaura estado", failing_settings:enabled("zlib"), true)
 
 -- ========= 5. Test Catalog (toggle affect) ----
 local reg = require("sources.init")
@@ -165,5 +173,43 @@ T.ok("validate fake-broken", (function()
     local _, e = sources_mod.validate({ META = { name = "x" } })
     return e ~= nil
 end)())
+
+-- ========= 7. Writer real do CLI propaga I/O tardio ----
+_G.GALOIS_CLI_TEST_EXPORT = true
+local cli_test = dofile("cli.lua")
+_G.GALOIS_CLI_TEST_EXPORT = nil
+local real_io_open = io.open
+local cli_path = "/tmp/galois-cli-writer-test/sources.cfg"
+os.execute("rm -rf /tmp/galois-cli-writer-test")
+io.open = function(path, mode)
+    local handle, err = real_io_open(path, mode)
+    if handle and mode == "wb" and path:sub(-4) == ".tmp" then
+        return {
+            write = function() handle:close(); return nil, "write failure" end,
+            close = function() return true end,
+        }
+    end
+    return handle, err
+end
+local cli_write_ok = cli_test.fs_real.write(cli_path, "zlib=0\n")
+io.open = real_io_open
+T.eq("CLI propaga falha de write", cli_write_ok, nil)
+T.eq("CLI não cria settings após falha de write", real_io_open(cli_path, "rb"), nil)
+
+io.open = function(path, mode)
+    local handle, err = real_io_open(path, mode)
+    if handle and mode == "wb" and path:sub(-4) == ".tmp" then
+        return {
+            write = function(_, value) return handle:write(value) end,
+            close = function() handle:close(); return nil, "close failure" end,
+        }
+    end
+    return handle, err
+end
+local cli_close_ok = cli_test.fs_real.write(cli_path, "zlib=0\n")
+io.open = real_io_open
+T.eq("CLI propaga falha de close", cli_close_ok, nil)
+T.eq("CLI não cria settings após falha de close", real_io_open(cli_path, "rb"), nil)
+os.execute("rm -rf /tmp/galois-cli-writer-test")
 
 T.done()
