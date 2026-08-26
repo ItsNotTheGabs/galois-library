@@ -14,20 +14,29 @@
 package.path = "./?.lua;./sources/?.lua;" .. package.path
 
 local settings = require("settings")
+local kual_app = require("kual.app")
 local sources  = require("sources.init")
 local catalog  = require("catalog")
 local anna = require("anna")
 local zlib = require("zlib")
 
 local CFG_PATH = os.getenv("HOME") .. "/.config/galois-library/sources.cfg"
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+local function command_ok(command)
+    local ok = os.execute(command)
+    return ok == true or ok == 0
+end
 local fs_real = {
     read = function(p) local f = io.open(p, "r"); if not f then return nil end
         local d = f:read("*a"); f:close(); return d end,
     write = function(p, d)
         local dir = string.match(p, '^(.*)/[^/]+$')
-        if dir then os.execute("mkdir -p '" .. dir .. "' 2>/dev/null") end
-        local f = io.open(p, "w"); if not f then return false end
-        f:write(d); f:close(); return true
+        if dir and not command_ok("mkdir -p " .. shell_quote(dir) .. " 2>/dev/null") then
+            return nil, "falha ao criar diretório de configuração"
+        end
+        return kual_app.write_file(p, d)
     end,
 }
 
@@ -63,8 +72,13 @@ local function cmd_toggle(name, val)
     local m = sources.get(name)
     if not m then print("fonte desconhecida: " .. name); return end
     local nv = val ~= "off"
-    cfg:set(name, nv)
+    local ok, err = cfg:set(name, nv)
+    if not ok then
+        io.stderr:write("falha ao salvar configuração: ", tostring(err), "\n")
+        return nil, err
+    end
     print(string.format("%s -> %s", name, nv and "ATIVADA" or "desativada"))
+    return true
 end
 
 local function cmd_search(args)
@@ -181,11 +195,15 @@ end
 
 -- ---- main ----
 
+if rawget(_G, "GALOIS_CLI_TEST_EXPORT") then
+    return { fs_real = fs_real, cmd_toggle = cmd_toggle }
+end
+
 local cmd = arg[1]
 if cmd == "sources" then
     cmd_sources()
 elseif cmd == "toggle" then
-    cmd_toggle(arg[2], arg[3])
+    if not cmd_toggle(arg[2], arg[3]) then os.exit(1) end
 elseif cmd == "search" then
     cmd_search(arg)
 elseif cmd == "health" then

@@ -1,95 +1,151 @@
-# GaloisLibrary 📚
+# GaloisLibrary 📚 — KUAL
 
-App para **Kindle jailbreakeado** (KUAL/KOReader) que busca livros com **capas e metadados**
-no **Anna's Archive** e **Z-Library**, baixa direto para a biblioteca do Kindle
-(`/mnt/us/documents`), com UI clicável, **fontes plugáveis com health check** e
-**auto-update** (o usuário nunca fica em versão antiga).
+Aplicação para **Kindle jailbroken**, executada inteiramente como extensão do
+**KUAL**. Permite montar uma consulta, pesquisar livros, conferir metadados e
+baixar arquivos para `/mnt/us/documents` sem instalar um plugin no KOReader.
 
-> ⚖️ O app é uma ferramenta neutra. Respeite direitos autorais: prefira obras de
-> domínio público / licenças livres. O responsável pelo uso é o usuário.
+> ⚖️ Ferramenta neutra: use apenas para obras em domínio público, licenciadas
+> livremente ou que você tenha direito de acessar.
 
-## Instalação (uma linha)
+## Mudança da v0.2.0
+
+A integração com o KOReader foi **descontinuada**. O instalador da v0.2.0:
+
+- não contém nem instala `galoislibrary.koplugin`;
+- remove resíduos antigos de:
+  - `/mnt/us/koreader/plugins/galoislibrary.koplugin`;
+  - `/mnt/us/plugins/galoislibrary.koplugin`;
+- instala somente a aplicação KUAL em
+  `/mnt/us/extensions/galoislibrary`;
+- mantém o núcleo e os dados em `/mnt/us/galois-library`.
+
+## Instalação
+
+No Kindle, por SSH ou terminal:
 
 ```sh
-curl -sSL https://SEU_HOST/galois-library/install.sh | sh
+curl -sSL https://itsnotthegabs.github.io/galois-library/install.sh | sh
 ```
 
-O instalador detecta o ambiente:
+Depois feche e reabra o KUAL. Entre em **GaloisLibrary**.
 
-- **Kindle** (`/mnt/us` presente) → instala em `/mnt/us/galois-library`, registra a
-  extensão KUAL (`extensions/galoislibrary`) e **instala o plugin KOReader** em
-  `/mnt/us/plugins/galoislibrary.koplugin` (aparece no menu do KOReader).
-- **Desktop Linux** → `~/.local/share/galois-library` (para testar tudo sem aparelho).
+## Como usar no KUAL
 
-Variáveis de ambiente:
+O KUAL não possui uma caixa de texto livre. Por isso, o GaloisLibrary usa menus
+dinâmicos como teclado:
 
-```bash
-GALOIS_REPO=ItsNotTheGabs/galois-library  # ou URL direta de release.json
-GALOIS_ASSET_URL=https://...   # tarball direto (dispensa GitHub API)
-GALOIS_PREFIX=/caminho/destino
+1. Abra **GaloisLibrary**.
+2. Use **Teclado A-I**, **Teclado J-R**, **Teclado S-Z**, **Números** e
+   **Espaço** para montar a consulta.
+3. Use **Apagar** ou **Limpar** para corrigir.
+4. Toque em **Pesquisar**.
+5. Aguarde a mensagem de conclusão e toque em **Atualizar tela**.
+6. Abra **Resultados** e escolha um livro.
+7. Toque em **Baixar para documents**.
+8. Aguarde a conclusão; o arquivo será salvo em `/mnt/us/documents`.
+
+As ações de rede rodam em segundo plano. **Atualizar tela** existe porque o KUAL
+recarrega o menu antes de pesquisas/downloads longos terminarem.
+
+## Fontes e diagnóstico
+
+No submenu **Fontes e diagnóstico**:
+
+- `[ON]` / `[OFF]` mostra o estado de cada fonte;
+- tocar em uma fonte alterna seu estado;
+- **Testar saúde das fontes** executa os probes e mostra o resultado em
+  `Status:` no menu principal.
+
+Anna's Archive começa ativa; Z-Library começa desativada até sua integração de
+login ficar estável.
+
+## Runtime
+
+O app é Lua puro e o launcher procura o runtime nesta ordem:
+
+1. `GALOIS_LUA`;
+2. runtime futuro empacotado em `/mnt/us/galois-library/bin/`;
+3. LuaJIT existente em `/mnt/us/koreader/luajit`;
+4. `lua` ou `luajit` no `PATH`.
+
+O KOReader pode fornecer apenas o **runtime LuaJIT**; nenhum plugin do KOReader é
+instalado ou carregado. Se nenhum runtime existir, o launcher mostra uma mensagem
+na tela e grava o motivo em:
+
+```text
+/mnt/us/extensions/galoislibrary/galois.log
 ```
 
-## DDoS-Guard — achado medido (importante!)
+O updater mantém seu log fora da extensão substituída:
 
-O site do Anna's está atrás do **DDoS-Guard** em IPs de datacenter; **user-agents de
-bot (ClaudeBot/GPTBot/ChatGPT) NÃO contornam** (medido: todos → 403 captcha). O que
-funciona de verdade:
-
-- A **busca** do AA pode dar challenge em IP de datacenter, mas **IP residencial
-  (Wi-Fi do usuário) tende a passar**;
-- O **download NÃO passa pelo gate**: `libgen.li/ads.php?md5=… → get.php?md5=…&key=… →
-  CDN booksdl.lc` — **validado ao vivo** (resolve de um md5 real de domínio público
-  devolveu a URL limpa e o CDN respondeu).
-- O `health` da fonte anna **separa** os dois estados: se a busca estiver atrás do
-  gate mas o espelho responder, a fonte aparece `SAUDÁVEL` (com nota) — porque o
-  download continua funcionando.
-
-## Auto-update 🔄
-
-- Ao abrir no KOReader, verifica 1×/dia e oferece atualizar (preservando `config/`).
-- CLI: `lua cli.lua update [--apply]`.
-- `create_release.sh` gera o pacote (`galois-library-<ver>.tar.gz` + `release.json`).
-
-## Health check por fonte 🩺
-
-```bash
-$ lua cli.lua health --all
-[!!]  anna  Anna's Archive — espelho de descarga indisponível: ...
-[OK]  zlib  Z-Library
-Saudáveis: 1 · Com problema: 1
-$ echo $?    # 1 = algo caído (monitorável por cron)
+```text
+/mnt/us/galois-library/data/kual/update.log
 ```
 
-Na UI (KOReader): Config → cada fonte mostra `[SAUDÁVEL]`/`[PROBLEMA: motivo]` +
-toggle + botão **"Testar fontes agora"**.
+## Atualização
 
-## Fontes plugáveis
+No menu GaloisLibrary, toque em **Atualizar GaloisLibrary**. O script espera as
+ações em andamento, valida o instalador oficial por SHA-256, atualiza o núcleo e
+substitui a extensão KUAL por completo.
 
-Busca roda só nas fontes ativas. Para adicionar fonte futura, crie `sources/nova.lua`:
+Também é possível repetir manualmente:
 
-```lua
-META = { name="nova", label="Nova", enabled_default=true }
-search(net, q, page, opts) -> { results={{md5,title,author,format,cover_url,...}}, page }
-resolve_download(net, book, opts) -> url
-health(net, opts) -> { ok=true } | { ok=false, error="motivo" }
+```sh
+curl -sSL https://itsnotthegabs.github.io/galois-library/install.sh | sh
 ```
 
-Registre em `sources.register_all({ ..., nova = require("nova") })` — nada mais muda.
+## Arquitetura
 
-## Stack & testes
+```text
+/mnt/us/galois-library/
+├── kual/
+│   ├── app.lua          # estado, menu dinâmico, busca e download
+│   ├── main.lua         # entrypoint Lua
+│   └── galoislibrary/   # template da extensão
+├── sources/             # Anna's Archive e Z-Library
+├── catalog.lua
+├── health.lua
+├── net_curl.lua
+└── data/kual/           # consulta, resultados e configuração persistentes
 
-- Lua 5.x / LuaJIT (KOReader) + `curl` (já no Kindle), núcleo Lua puro testável.
-- `lua tests/run_all.lua` → **83 testes verdes** (sources, catalog, settings,
-  update, health, lógica da UI com stubs KOReader).
-- Download com **resume** (`-C -`) e **retry** (`--retry 2`).
+/mnt/us/extensions/galoislibrary/
+├── config.xml
+├── menu.json
+├── run.sh
+├── update.sh
+├── app_path
+└── galois.log
+```
 
-## Roteiro
+## DDoS-Guard
 
-- [x] Fontes plugáveis (anna + zlib) com toggle persistente e health
-- [x] Instalação `curl|sh` + auto-update (instala plugin KOReader também)
-- [x] DDoS-Guard contornado: download via espelhos libgen (validado ao vivo)
-- [x] `cover_url` no contrato/parser/UI (render ImageWidget: pending device)
-- [x] CLI: search / toggle / health / update / resolve (E2E real validado)
-- [ ] Validação on-device (visual, ImageWidget real, download no Wi-Fi real)
-- [ ] Login zlib + fila de downloads com gestão de falhas
-- [ ] Publicar repo + release real para o `curl|sh` funcionar no GitHub
+A busca do Anna's Archive pode apresentar challenge em alguns endereços IP. Em
+Wi-Fi residencial costuma funcionar melhor. A resolução de download usa espelhos
+LibGen independentes e o health check diferencia falha de busca de falha do
+caminho de download.
+
+## Desenvolvimento e testes
+
+```sh
+lua tests/run_all.lua
+./create_release.sh
+sh tests/test_install_layout.sh "$PWD/dist/galois-library-$(cat VERSION).tar.gz"
+```
+
+Os testes (**128 passed, 0 failed**) cobrem fontes, catálogo, configurações,
+health, atualização, teclado KUAL, persistência, pesquisa, download e upgrade
+sobre instalações 0.1.x. O núcleo KUAL também é executado com o LuaJIT real do
+KOReader somente como runtime. O smoke test valida que o pacote não contém
+`koplugin/` e que o instalador remove plugins legados.
+
+## Estado atual
+
+- [x] UI dinâmica KUAL sem KTerm
+- [x] Teclado por submenus
+- [x] Pesquisa e resultados no KUAL
+- [x] Download para `/mnt/us/documents`
+- [x] Toggle e health check por fonte
+- [x] Auto-update da extensão e do núcleo
+- [x] Remoção automática do plugin KOReader legado
+- [ ] Validação final no Kindle físico
+- [ ] Login estável da Z-Library
